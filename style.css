@@ -580,9 +580,67 @@ input[type="range"]::-moz-range-progress {
   background: transparent !important;
 }
 
-/* Region styling */
-[data-part="region-handle"] {
-  width: 8px !important;
+/* Region selection area - make it more visible */
+[part~="region"] {
+  background-color: rgba(124, 92, 255, 0.15) !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+
+/* Resize handles - much larger touch target */
+[part~="region-handle"] {
+  width: 28px !important;
+  z-index: 10 !important;
+}
+
+[part~="region-handle-left"] {
+  left: -14px !important;
+  border-left: 4px solid var(--accent) !important;
+  border-radius: 6px 0 0 6px !important;
+  background: rgba(124, 92, 255, 0.3) !important;
+}
+
+[part~="region-handle-right"] {
+  right: -14px !important;
+  border-right: 4px solid var(--accent) !important;
+  border-radius: 0 6px 6px 0 !important;
+  background: rgba(124, 92, 255, 0.3) !important;
+}
+
+/* Handle grab indicators - white bars inside handles */
+[part~="region-handle-left"]::after,
+[part~="region-handle-right"]::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 24px;
+  background: white;
+  border-radius: 2px;
+  opacity: 0.8;
+}
+
+/* Larger handles on mobile */
+@media (max-width: 480px) {
+  [part~="region-handle"] {
+    width: 36px !important;
+  }
+
+  [part~="region-handle-left"] {
+    left: -18px !important;
+  }
+
+  [part~="region-handle-right"] {
+    right: -18px !important;
+  }
+
+  [part~="region-handle-left"]::after,
+  [part~="region-handle-right"]::after {
+    height: 30px;
+    width: 5px;
+  }
 }
 
 /* ===== Mobile Responsive ===== */
