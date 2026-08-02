@@ -18,7 +18,7 @@
 
     <!-- Upload Zone -->
     <div id="uploadZone" class="upload-zone">
-      <input type="file" id="fileInput" accept="audio/*" hidden>
+      <input type="file" id="fileInput" accept=".mp3,.wav,.ogg,.m4a,.flac,.aac,.wma,.opus,audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/x-flac,audio/flac" hidden>
       <div class="upload-icon">
         <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -26,8 +26,9 @@
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
       </div>
-      <p class="upload-text">点击或拖拽音频文件到此处</p>
+      <p class="upload-text">点击选择音频文件</p>
       <p class="upload-hint">支持 MP3 / WAV / OGG / M4A / FLAC 等格式</p>
+      <p class="upload-tip">手机用户：请通过「文件管理」选择音频，不要选「录音」App</p>
     </div>
 
     <!-- Loading -->
