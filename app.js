@@ -22,8 +22,6 @@ let extractRafId = null; // 视频提取进度轮询
 const $ = (id) => document.getElementById(id);
 const uploadZone = $('uploadZone');
 const fileInput = $('fileInput');
-const btnPickAudio = $('btnPickAudio');
-const btnPickVideo = $('btnPickVideo');
 const loadingZone = $('loadingZone');
 const loadingText = $('loadingText');
 const editor = $('editor');
@@ -42,38 +40,50 @@ const progressFill = $('progressFill');
 const progressText = $('progressText');
 const toast = $('toast');
 
-// 视频格式检测
-const VIDEO_RE = /\.(mp4|webm|mov|m4v|mkv|avi|flv|3gp)$/i;
+// 音视频格式检测（type → 扩展名 → 文件头 magic bytes 三重判断）
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|mkv|avi|flv|3gp|ts|wmv|mpg|mpeg|rmvb)$/i;
+const AUDIO_EXT_RE = /\.(mp3|wav|ogg|oga|m4a|flac|aac|wma|opus|amr|aiff|aif|caf|pcm)$/i;
 const VIDEO_MIME_RE = /^video\//;
+const AUDIO_MIME_RE = /^audio\//;
+
+// 返回 true=视频 / false=音频 / null=无法判断
+async function detectIsVideo(file) {
+  if (VIDEO_MIME_RE.test(file.type)) return true;
+  if (AUDIO_MIME_RE.test(file.type)) return false;
+  if (VIDEO_EXT_RE.test(file.name)) return true;
+  if (AUDIO_EXT_RE.test(file.name)) return false;
+  // 移动端 file.type 常为空，读文件头 magic bytes 兜底
+  try {
+    const buf = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    // MP4 / MOV / 3GP / M4V: offset 4-7 == 'ftyp'
+    if (buf.length >= 12 && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return true;
+    // EBML (WebM / MKV)
+    if (buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return true;
+    // RIFF-AVI: 'RIFF' + 'AVI '
+    if (buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+        String.fromCharCode(buf[8], buf[9], buf[10], buf[11]) === 'AVI ') return true;
+    // FLV
+    if (buf.length >= 3 && buf[0] === 0x46 && buf[1] === 0x4c && buf[2] === 0x56) return true;
+  } catch (e) {}
+  return null;
+}
 
 // ===== Init =====
 function init() {
-  // Upload (audio)
-  fileInput.addEventListener('change', (e) => {
+  // 单一上传入口：自动识别音视频
+  fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (isVideoFile(file)) {
+    const isVideo = await detectIsVideo(file);
+    if (isVideo === true) {
       loadVideoFile(file);
     } else {
       loadAudioFile(file);
     }
   });
 
-  // 两个按钮：选音频 / 选视频
-  btnPickAudio.addEventListener('click', (e) => {
-    e.stopPropagation();
-    fileInput.accept = '.mp3,.wav,.ogg,.m4a,.flac,.aac,.wma,.opus,audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/x-flac,audio/flac';
-    fileInput.click();
-  });
-  btnPickVideo.addEventListener('click', (e) => {
-    e.stopPropagation();
-    fileInput.accept = '.mp4,.webm,.mov,.m4v,.mkv,.avi,.flv,.3gp,video/mp4,video/webm,video/quicktime,video/x-matroska,video/x-msvideo';
-    fileInput.click();
-  });
-
-  // 点击上传区默认选音频
+  // 点击上传区选择文件（音频 / 视频均可）
   uploadZone.addEventListener('click', () => {
-    fileInput.accept = '.mp3,.wav,.ogg,.m4a,.flac,.aac,.wma,.opus,audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/x-flac,audio/flac';
     fileInput.click();
   });
 
@@ -82,17 +92,18 @@ function init() {
     uploadZone.classList.add('dragover');
   });
   uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
-  uploadZone.addEventListener('drop', (e) => {
+  uploadZone.addEventListener('drop', async (e) => {
     e.preventDefault();
     uploadZone.classList.remove('dragover');
     const file = e.dataTransfer.files[0];
     if (!file) return;
-    if (isVideoFile(file)) {
+    const isVideo = await detectIsVideo(file);
+    if (isVideo === true) {
       loadVideoFile(file);
-    } else if (file.type.startsWith('audio/')) {
+    } else if (isVideo === false) {
       loadAudioFile(file);
     } else {
-      showToast('请拖入音频或视频文件', 'error');
+      showToast('无法识别文件类型，请选择音频或视频文件', 'error');
     }
   });
 
@@ -109,11 +120,6 @@ function init() {
   // Playback
   previewBtn.addEventListener('click', togglePreview);
   exportBtn.addEventListener('click', exportMP3);
-}
-
-function isVideoFile(file) {
-  if (VIDEO_MIME_RE.test(file.type)) return true;
-  return VIDEO_RE.test(file.name);
 }
 
 // ===== File Loading (Audio) =====

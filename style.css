@@ -726,52 +726,7 @@ input[type="range"]::-moz-range-progress {
   }
 }
 
-/* ===== Upload Actions (新增) ===== */
-.upload-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 20px;
-  position: relative;
-  flex-wrap: wrap;
-}
-
-.upload-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 22px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.upload-btn .btn-icon {
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
-.upload-btn:hover {
-  border-color: var(--accent);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(124, 92, 255, 0.18);
-}
-
-.upload-btn-video {
-  background: linear-gradient(135deg, rgba(124, 92, 255, 0.16), rgba(124, 92, 255, 0.06));
-  border-color: rgba(124, 92, 255, 0.45);
-}
-
-.upload-btn-video .btn-icon {
-  color: var(--accent);
-}
-
-/* ===== Cover Thumb (新增) ===== */
+/* ===== Cover Thumb ===== */
 .cover-thumb {
   width: 34px;
   height: 34px;
@@ -780,12 +735,4 @@ input[type="range"]::-moz-range-progress {
   flex-shrink: 0;
   border: 1px solid var(--border);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-}
-
-@media (max-width: 480px) {
-  .upload-btn {
-    width: 100%;
-    justify-content: center;
-    padding: 11px 16px;
-  }
 }
