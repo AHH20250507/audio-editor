@@ -183,7 +183,7 @@ async function loadVideoFile(file) {
 
   // 方案3：ffmpeg.wasm 通用转码（最稳，但首次需下载 ~30MB wasm）
   try {
-    showLoading(true, '正在加载转码引擎（首次需等待下载）...');
+    showLoading(true, '正在下载转码引擎（约30MB，请保持网络畅通）...');
     audioBuffer = await extractAudioWithFFmpeg(file, (msg, pct) => {
       if (pct !== undefined) {
         loadingText.textContent = `ffmpeg 转码中... ${pct}%`;
@@ -316,18 +316,27 @@ async function getFFmpeg() {
 
   _ffmpegLoading = (async () => {
     if (typeof FFmpegWASM === 'undefined' || !FFmpegWASM.FFmpeg) {
-      throw new Error('转码引擎未加载');
+      throw new Error('转码引擎未加载，请刷新页面重试');
     }
     const ffmpeg = new FFmpegWASM.FFmpeg();
     ffmpeg.on('log', () => {});
-    // ffmpeg-core.js 通过 ffmpeg.js 内部 worker 加载，wasm 同源 fetch
-    await ffmpeg.load({
-      coreURL: new URL('lib/ffmpeg-core.js', window.location.href).href,
-      wasmURL: new URL('lib/ffmpeg-core.wasm', window.location.href).href,
+
+    const coreURL = new URL('lib/ffmpeg-core.js', window.location.href).href;
+    const wasmURL = new URL('lib/ffmpeg-core.wasm', window.location.href).href;
+
+    // 超时兜底：32MB wasm 在弱网下可能很慢甚至失败，避免 Promise 永远 pending 导致一直卡在 loading
+    const loadPromise = ffmpeg.load({ coreURL, wasmURL });
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('转码引擎加载超时（请检查网络后重试，或刷新页面）')), 180000);
     });
+
+    await Promise.race([loadPromise, timeoutPromise]);
     _ffmpegInstance = ffmpeg;
     return ffmpeg;
   })();
+
+  // 任意一次失败都清空，允许下次重新加载
+  _ffmpegLoading.catch(() => { _ffmpegLoading = null; });
 
   return _ffmpegLoading;
 }
@@ -337,7 +346,7 @@ async function extractAudioWithFFmpeg(file, onProgress) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
   }
 
-  onProgress?.('加载转码引擎中...');
+  onProgress?.('正在下载转码引擎（约30MB）...');
   const ffmpeg = await getFFmpeg();
 
   onProgress?.('写入文件到虚拟文件系统...');
@@ -1185,6 +1194,22 @@ function resetEditor() {
   exportProgress.classList.add('hidden');
 }
 
+// ===== 空闲时预取转码引擎 wasm（提升视频提取首次加载速度）=====
+// 避开「省流量」模式；用 requestIdleCallback 在后台低优先下载，命中 HTTP 缓存后 ffmpeg.load 不再等待
+function prefetchFFmpegWasm() {
+  try {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (conn && conn.saveData) return; // 用户开了省流量，不预取
+    const wasmURL = new URL('lib/ffmpeg-core.wasm', window.location.href).href;
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => { fetch(wasmURL, { cache: 'force-cache' }).catch(() => {}); }, { timeout: 5000 });
+    } else {
+      setTimeout(() => { fetch(wasmURL, { cache: 'force-cache' }).catch(() => {}); }, 3000);
+    }
+  } catch (e) {}
+}
+
 // ===== Start =====
 init();
 updateVolumeSliderFill();
+prefetchFFmpegWasm();
