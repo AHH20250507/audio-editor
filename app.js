@@ -1033,14 +1033,17 @@ function dataUrlToBytes(dataUrl) {
 }
 
 function utf16Bytes(str) {
-  const bytes = new Uint8Array(2 + str.length * 2 + 2);
+  // ID3v2 文本帧：text_encoding_byte(1) + BOM(0xFE 0xFF) + UTF-16BE chars + 终止符
+  // encoding byte 必须存在，否则播放器按 ISO-8859-1 解码会乱码
+  const bytes = new Uint8Array(1 + 2 + str.length * 2 + 2);
+  bytes[0] = 0x01; // 0x01 = UTF-16 with BOM
+  bytes[1] = 0xFE; bytes[2] = 0xFF; // UTF-16BE BOM
   const dv = new DataView(bytes.buffer);
-  dv.setUint16(0, 0xfeff); // BOM
   for (let i = 0; i < str.length; i++) {
-    dv.setUint16(2 + i * 2, str.charCodeAt(i));
+    dv.setUint16(3 + i * 2, str.charCodeAt(i));
   }
   // 末尾双字节终止符（v2.3 文本帧要求）
-  dv.setUint16(2 + str.length * 2, 0);
+  dv.setUint16(3 + str.length * 2, 0);
   return bytes;
 }
 
