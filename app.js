@@ -297,7 +297,7 @@ function makeAdtsHeader(sampleRate, channels, frameLength) {
   const h = new Uint8Array(7);
   h[0] = 0xFF;
   h[1] = 0xF1; // MPEG-4, layer 0, no CRC
-  h[2] = ((1 << 6) & 0xC0) | ((freqIdx & 0x0F) << 2) | ((channelCfg >> 2) & 0x01);
+  h[2] = ((2 << 6) & 0xC0) | ((freqIdx & 0x0F) << 2) | ((channelCfg >> 2) & 0x01);
   h[3] = ((channelCfg & 0x03) << 6) | ((frameLen >> 11) & 0x03);
   h[4] = (frameLen >> 3) & 0xFF;
   h[5] = ((frameLen & 0x07) << 5) | 0x1F;
