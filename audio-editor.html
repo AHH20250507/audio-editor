@@ -244,6 +244,7 @@ button {
   gap: 4px;
   flex: 1;
   min-width: 0;
+  width: 100%;
 }
 
 .file-name-label {
@@ -251,6 +252,11 @@ button {
   color: var(--text-muted);
   font-weight: 500;
   letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  max-width: 100%;
 }
 
 .file-name-input {
@@ -746,6 +752,37 @@ input[type="range"]::-moz-range-progress {
   input[type="range"]::-moz-range-thumb {
     width: 26px;
     height: 26px;
+  }
+
+  /* File bar: stack vertically on mobile so label/button don't squeeze */
+  .file-bar {
+    flex-wrap: wrap;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .file-info {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .file-bar > .btn-text {
+    order: 2;
+    flex: 0 0 auto;
+    align-self: flex-end;
+    margin-left: auto;
+  }
+
+  .file-name-input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .cover-thumb {
+    width: 44px;
+    height: 44px;
   }
 }
 
