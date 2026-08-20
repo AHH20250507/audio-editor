@@ -226,12 +226,34 @@ button {
   flex-shrink: 0;
 }
 
-.file-name {
+.file-name-input {
   font-size: 14px;
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  min-width: 0;
+  flex: 1;
+  outline: none;
+  transition: var(--transition);
+}
+
+.file-name-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.file-name-input:hover {
+  border-color: var(--border);
+}
+
+.file-name-input:focus {
+  border-color: var(--accent);
+  background: var(--bg-card);
 }
 
 /* ===== Card ===== */

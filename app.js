@@ -587,7 +587,8 @@ function stopExtractProgress() {
 
 // ===== Shared Editor Setup =====
 function setupEditor(name) {
-  fileNameEl.textContent = name;
+  // 默认标题去掉扩展名，用户可以在输入框里改成想要的名字（播放器里显示的就是它）
+  fileNameEl.value = name.replace(/\.[^.]+$/, '');
   // 显示封面
   if (coverThumb) {
     coverThumb.src = coverDataUrl;
@@ -942,8 +943,9 @@ async function exportMP3() {
 
     const mp3Blob = encodeMP3(rendered);
 
-    // 嵌入封面（ID3v2 标签）
-    const finalBlob = embedCoverToMP3(mp3Blob, fileNameEl.textContent);
+    // 嵌入封面（ID3v2 标签）。标题用用户在标题框里输入的内容（默认是原文件名）
+    const title = (fileNameEl.value || '').trim() || '未命名';
+    const finalBlob = embedCoverToMP3(mp3Blob, title);
 
     progressFill.style.width = '100%';
     progressText.textContent = '导出完成！';
@@ -952,8 +954,7 @@ async function exportMP3() {
     const url = URL.createObjectURL(finalBlob);
     const a = document.createElement('a');
     a.href = url;
-    const baseName = fileNameEl.textContent.replace(/\.[^.]+$/, '');
-    a.download = `${baseName}_edited.mp3`;
+    a.download = `${title}_edited.mp3`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1085,7 +1086,7 @@ function embedCoverToMP3(mp3Blob, title) {
     apicData.set(coverBytes, p);
 
     // 标题/专辑/艺术家（UTF-16 文本帧）
-    const tit2 = utf16Bytes(title.replace(/\.[^.]+$/, ''));
+    const tit2 = utf16Bytes(title); // title 已是用户在标题框输入的内容
     const talb = utf16Bytes('视频音频提取');
     const tpe1 = utf16Bytes('audio-editor-pro');
 
@@ -1177,6 +1178,7 @@ function resetEditor() {
   showEditor(false);
   uploadZone.classList.remove('hidden');
   fileInput.value = '';
+  fileNameEl.value = '';
   volumeSlider.value = 100;
   volumeValue.textContent = '100%';
   updateVolumeSliderFill();
