@@ -226,20 +226,35 @@ button {
   flex-shrink: 0;
 }
 
+.file-name-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-name-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
 .file-name-input {
   font-size: 14px;
   font-weight: 500;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 4px 8px;
-  margin: -4px -8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
   color: var(--text-primary);
   font-family: inherit;
   min-width: 0;
   flex: 1;
   outline: none;
   transition: var(--transition);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .file-name-input::placeholder {
@@ -248,12 +263,12 @@ button {
 }
 
 .file-name-input:hover {
-  border-color: var(--border);
+  border-color: rgba(124, 92, 255, 0.4);
 }
 
 .file-name-input:focus {
   border-color: var(--accent);
-  background: var(--bg-card);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15);
 }
 
 /* ===== Card ===== */
