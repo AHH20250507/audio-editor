@@ -68,6 +68,18 @@ async function detectIsVideo(file) {
   return null;
 }
 
+// 根据扩展名推断 MIME，用于 file.type 为空时给 video 元素做预检
+const MIME_BY_EXT = {
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime',
+  webm: 'video/webm', mkv: 'video/x-matroska',
+  avi: 'video/x-msvideo', flv: 'video/x-flv', '3gp': 'video/3gpp',
+  ts: 'video/mp2t', wmv: 'video/x-ms-wmv', mpg: 'video/mpeg', mpeg: 'video/mpeg',
+};
+function guessMimeByName(name) {
+  const m = (name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? MIME_BY_EXT[m[1]] : '';
+}
+
 // ===== Init =====
 function init() {
   // 单一上传入口：自动识别音视频
@@ -166,12 +178,20 @@ async function extractAudioFromVideo(file, onProgress) {
   video.muted = true; // 静音播放，避免出声
   video.playsInline = true;
   video.crossOrigin = 'anonymous';
+
+  // 编码预检：浏览器是否认得该格式（HEVC/AV1 等常不被支持）
+  const mime = file.type || guessMimeByName(file.name);
+  if (mime && video.canPlayType(mime) === '') {
+    URL.revokeObjectURL(url);
+    throw new Error(`浏览器不支持此视频格式（${mime}）。请用「格式工厂 / HandBrake」转码为 H.264 + AAC 的 MP4 再上传`);
+  }
+
   video.src = url;
 
   // 等待元数据加载
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error('视频加载超时'));
+      reject(new Error('视频加载超时（30秒）'));
     }, 30000);
     video.addEventListener('loadedmetadata', () => {
       clearTimeout(timer);
@@ -179,7 +199,16 @@ async function extractAudioFromVideo(file, onProgress) {
     }, { once: true });
     video.addEventListener('error', () => {
       clearTimeout(timer);
-      reject(new Error('无法读取该视频文件'));
+      const err = video.error;
+      const codeMap = {
+        1: '播放被中止',
+        2: '网络错误',
+        3: '解码失败（视频编码可能不被浏览器支持，如微信视频常用的 HEVC）',
+        4: '格式或 MIME 不支持',
+      };
+      const reason = err ? (codeMap[err.code] || `错误码 ${err.code}`) : '未知错误';
+      URL.revokeObjectURL(url);
+      reject(new Error(`${reason}。请尝试用「格式工厂 / HandBrake」转码为 H.264 + AAC 的 MP4 后重试`));
     }, { once: true });
     if (video.readyState >= 1) {
       clearTimeout(timer);
