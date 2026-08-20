@@ -183,15 +183,26 @@ async function loadVideoFile(file) {
 
 // ===== MP4Box 容器解析方案：绕开视频解码，直接提取音频轨 =====
 async function extractAudioWithMP4Box(file) {
-  if (typeof MP4Box === 'undefined') {
-    throw new Error('解析库加载失败，请刷新重试');
-  }
   if (!audioContext) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  arrayBuffer.fileStart = 0; // mp4box 要求标记文件起始偏移
+  const fileBuffer = await file.arrayBuffer();
+
+  // 第一步：浏览器内核通常支持直接解码视频文件中的音频轨
+  // Chrome/Edge/Safari 对 MP4 容器支持良好，即使视频轨是 HEVC/AV1 也能只解音频
+  try {
+    return await audioContext.decodeAudioData(fileBuffer.slice(0));
+  } catch (e) {
+    console.warn('Direct decode of original file failed:', e.message);
+  }
+
+  // 第二步：用 mp4box 打开容器，提取 AAC 裸帧并加 ADTS 头
+  if (typeof MP4Box === 'undefined') {
+    throw new Error('解析库加载失败，请刷新重试');
+  }
+
+  fileBuffer.fileStart = 0; // mp4box 要求标记文件起始偏移
   const mp4box = MP4Box.createFile();
 
   const audioTrack = await new Promise((resolve, reject) => {
@@ -211,7 +222,7 @@ async function extractAudioWithMP4Box(file) {
       reject(new Error('视频容器解析失败'));
     };
     try {
-      mp4box.appendBuffer(arrayBuffer);
+      mp4box.appendBuffer(fileBuffer);
       mp4box.flush();
     } catch (e) {
       clearTimeout(timer);
@@ -254,7 +265,7 @@ async function extractAudioWithMP4Box(file) {
   });
 
   if (chunks.length === 0) {
-    throw new Error('未提取到音频数据');
+    throw new Error(`未提取到音频数据（编码：${audioTrack.codec || '未知'}）`);
   }
 
   const totalLen = chunks.reduce((n, c) => n + c.length, 0);
@@ -269,7 +280,7 @@ async function extractAudioWithMP4Box(file) {
   try {
     return await audioContext.decodeAudioData(await aacBlob.arrayBuffer());
   } catch (e) {
-    throw new Error('音频轨解码失败');
+    throw new Error(`音频轨解码失败（编码：${audioTrack.codec || '未知'}）`);
   }
 }
 
