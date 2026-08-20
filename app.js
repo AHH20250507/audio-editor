@@ -159,16 +159,135 @@ async function loadVideoFile(file) {
   showLoading(true, '正在解析视频...');
 
   try {
+    // 方案1：video 元素 + OfflineAudioContext（浏览器兼容最好，速度快）
     audioBuffer = await extractAudioFromVideo(file, (pct) => {
       loadingText.textContent = `正在提取视频音频... ${pct}%（实时渲染，视频越长等待越久）`;
     });
     setupEditor(file.name);
   } catch (err) {
-    console.error('Video extract error:', err);
+    console.warn('Video element 方案失败，降级为容器解析方案:', err.message);
     stopExtractProgress();
-    showLoading(false);
-    showToast('视频音频提取失败：' + (err.message || '未知错误'), 'error');
+    // 方案2：mp4box 直接解析 MP4/MOV 容器，跳过视频解码，只提取音频轨
+    // （解决 HEVC/AV1 视频或特殊音轨导致 video 元素整体加载失败的情况）
+    try {
+      showLoading(true, '正在解析视频容器...');
+      audioBuffer = await extractAudioWithMP4Box(file);
+      setupEditor(file.name);
+    } catch (err2) {
+      console.error('Video extract error:', err2);
+      showLoading(false);
+      showToast('视频音频提取失败：' + (err2.message || '未知错误'), 'error');
+    }
   }
+}
+
+// ===== MP4Box 容器解析方案：绕开视频解码，直接提取音频轨 =====
+async function extractAudioWithMP4Box(file) {
+  if (typeof MP4Box === 'undefined') {
+    throw new Error('解析库加载失败，请刷新重试');
+  }
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  arrayBuffer.fileStart = 0; // mp4box 要求标记文件起始偏移
+  const mp4box = MP4Box.createFile();
+
+  const audioTrack = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('视频容器解析超时')), 20000);
+    mp4box.onReady = (info) => {
+      clearTimeout(timer);
+      const track = (info.tracks || []).find(t => t.audio);
+      if (!track) {
+        reject(new Error('视频中没有找到音频轨道'));
+        return;
+      }
+      mp4box.setExtractionOptions(track.id, null, { nbSamples: 10000 });
+      resolve(track);
+    };
+    mp4box.onError = (err) => {
+      clearTimeout(timer);
+      reject(new Error('视频容器解析失败'));
+    };
+    try {
+      mp4box.appendBuffer(arrayBuffer);
+      mp4box.flush();
+    } catch (e) {
+      clearTimeout(timer);
+      reject(new Error('无法解析该视频容器'));
+    }
+  });
+
+  // 收集音频样本（带 ADTS 头，拼成标准 .aac 流）
+  const chunks = [];
+  const sampleRate = audioTrack.audio.sample_rate;
+  const channels = audioTrack.audio.channel_count || 2;
+  const isAAC = /mp4a/i.test(audioTrack.codec || '');
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('音频样本提取超时')), 20000);
+    mp4box.onSamples = (id, user, samples) => {
+      try {
+        for (const s of samples) {
+          const raw = new Uint8Array(s.data);
+          if (isAAC) {
+            // AAC 裸帧加 ADTS 头，浏览器才能识别
+            const adts = makeAdtsHeader(sampleRate, channels, raw.length);
+            chunks.push(adts, raw);
+          } else {
+            chunks.push(raw);
+          }
+        }
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    };
+    try {
+      mp4box.start();
+      mp4box.stop();
+    } catch (e) {}
+    mp4box.flush();
+    // 若 onSamples 未触发（样本已提前提取或空），结束等待
+    setTimeout(() => { clearTimeout(timer); resolve(); }, 500);
+  });
+
+  if (chunks.length === 0) {
+    throw new Error('未提取到音频数据');
+  }
+
+  const totalLen = chunks.reduce((n, c) => n + c.length, 0);
+  const aacBytes = new Uint8Array(totalLen);
+  let off = 0;
+  for (const c of chunks) {
+    aacBytes.set(c, off);
+    off += c.length;
+  }
+
+  const aacBlob = new Blob([aacBytes], { type: isAAC ? 'audio/aac' : 'audio/mp4' });
+  try {
+    return await audioContext.decodeAudioData(await aacBlob.arrayBuffer());
+  } catch (e) {
+    throw new Error('音频轨解码失败');
+  }
+}
+
+// AAC ADTS 头（AAC-LC, MPEG-4, 7 字节）
+function makeAdtsHeader(sampleRate, channels, frameLength) {
+  const freqIdxMap = { 96000: 0, 88200: 1, 64000: 2, 48000: 3, 44100: 4, 32000: 5, 24000: 6, 22050: 7, 16000: 8, 12000: 9, 11025: 10, 8000: 11, 7350: 12 };
+  const freqIdx = freqIdxMap[sampleRate] !== undefined ? freqIdxMap[sampleRate] : 4; // 默认 44100
+  const channelCfg = Math.min(Math.max(channels, 1), 7);
+  const frameLen = frameLength + 7;
+  const h = new Uint8Array(7);
+  h[0] = 0xFF;
+  h[1] = 0xF1; // MPEG-4, layer 0, no CRC
+  h[2] = ((1 << 6) & 0xC0) | ((freqIdx & 0x0F) << 2) | ((channelCfg >> 2) & 0x01);
+  h[3] = ((channelCfg & 0x03) << 6) | ((frameLen >> 11) & 0x03);
+  h[4] = (frameLen >> 3) & 0xFF;
+  h[5] = ((frameLen & 0x07) << 5) | 0x1F;
+  h[6] = 0xFC;
+  return h;
 }
 
 async function extractAudioFromVideo(file, onProgress) {
