@@ -277,9 +277,13 @@ async function extractAudioWithMP4Box(file) {
   }
 
   const aacBlob = new Blob([aacBytes], { type: isAAC ? 'audio/aac' : 'audio/mp4' });
+
+  // 第三步：用 <audio> 元素播放 ADTS AAC 流，通过 OfflineAudioContext 录制得到 AudioBuffer
+  // 绕开 Safari / iOS 对 decodeAudioData 处理视频来源音频的限制
   try {
-    return await audioContext.decodeAudioData(await aacBlob.arrayBuffer());
+    return await renderAudioUrlToBuffer(URL.createObjectURL(aacBlob), audioTrack.duration / audioTrack.timescale);
   } catch (e) {
+    console.warn('MediaElement 录制方案失败:', e.message);
     throw new Error(`音频轨解码失败（编码：${audioTrack.codec || '未知'}）`);
   }
 }
@@ -301,6 +305,76 @@ function makeAdtsHeader(sampleRate, channels, frameLength) {
   return h;
 }
 
+// 通用：把 <audio>/<video> 元素的音频轨录制到 OfflineAudioContext，返回 AudioBuffer
+async function renderMediaElementToBuffer(url, duration, isAudioElement, onProgress) {
+  const el = document.createElement(isAudioElement ? 'audio' : 'video');
+  el.preload = 'auto';
+  el.muted = true;
+  el.playsInline = true;
+  el.crossOrigin = 'anonymous';
+  el.src = url;
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('媒体加载超时')), 30000);
+    const onReady = () => { clearTimeout(timer); resolve(); };
+    el.addEventListener('loadedmetadata', onReady, { once: true });
+    el.addEventListener('error', () => {
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      reject(new Error('媒体加载失败'));
+    }, { once: true });
+    if (el.readyState >= 1) {
+      clearTimeout(timer);
+      resolve();
+    }
+  });
+
+  const sampleRate = 48000;
+  const channels = 2;
+  const totalFrames = Math.max(1, Math.ceil((duration || el.duration || 1) * sampleRate));
+
+  const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OfflineCtx) {
+    URL.revokeObjectURL(url);
+    throw new Error('当前浏览器不支持离线音频渲染');
+  }
+  const offlineCtx = new OfflineCtx(channels, totalFrames, sampleRate);
+
+  let source;
+  try {
+    source = offlineCtx.createMediaElementSource(el);
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw new Error('当前浏览器不支持媒体音频提取');
+  }
+  source.connect(offlineCtx.destination);
+
+  el.play().catch(() => {});
+  let lastTick = 0;
+  const tick = () => {
+    if (onProgress && el.duration) {
+      const pct = Math.min(100, Math.round((el.currentTime / el.duration) * 100));
+      if (pct !== lastTick) { lastTick = pct; onProgress(pct); }
+    }
+    extractRafId = requestAnimationFrame(tick);
+  };
+  tick();
+
+  try {
+    return await offlineCtx.startRendering();
+  } finally {
+    stopExtractProgress();
+    el.pause();
+    el.removeAttribute('src');
+    el.load();
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function renderAudioUrlToBuffer(url, duration) {
+  return renderMediaElementToBuffer(url, duration, true);
+}
+
 async function extractAudioFromVideo(file, onProgress) {
   const url = URL.createObjectURL(file);
   const video = document.createElement('video');
@@ -309,11 +383,11 @@ async function extractAudioFromVideo(file, onProgress) {
   video.playsInline = true;
   video.crossOrigin = 'anonymous';
 
-  // 编码预检：浏览器是否认得该格式（HEVC/AV1 等常不被支持）
+  // 编码预检：浏览器是否认得该格式
   const mime = file.type || guessMimeByName(file.name);
   if (mime && video.canPlayType(mime) === '') {
     URL.revokeObjectURL(url);
-    throw new Error(`浏览器不支持此视频格式（${mime}）。请用「格式工厂 / HandBrake」转码为 H.264 + AAC 的 MP4 再上传`);
+    throw new Error(`浏览器不支持此视频格式（${mime}）`);
   }
 
   video.src = url;
@@ -338,7 +412,7 @@ async function extractAudioFromVideo(file, onProgress) {
       };
       const reason = err ? (codeMap[err.code] || `错误码 ${err.code}`) : '未知错误';
       URL.revokeObjectURL(url);
-      reject(new Error(`${reason}。请尝试用「格式工厂 / HandBrake」转码为 H.264 + AAC 的 MP4 后重试`));
+      reject(new Error(reason));
     }, { once: true });
     if (video.readyState >= 1) {
       clearTimeout(timer);
