@@ -158,26 +158,44 @@ async function loadAudioFile(file) {
 async function loadVideoFile(file) {
   showLoading(true, '正在解析视频...');
 
+  // 方案1：video 元素 + OfflineAudioContext（最快，常规格式）
   try {
-    // 方案1：video 元素 + OfflineAudioContext（浏览器兼容最好，速度快）
     audioBuffer = await extractAudioFromVideo(file, (pct) => {
-      loadingText.textContent = `正在提取视频音频... ${pct}%（实时渲染，视频越长等待越久）`;
+      loadingText.textContent = `正在提取视频音频... ${pct}%`;
+    });
+    setupEditor(file.name);
+    return;
+  } catch (err) {
+    console.warn('Video 元素方案失败:', err.message);
+    stopExtractProgress();
+  }
+
+  // 方案2：mp4box 容器解析（绕开视频解码）
+  try {
+    showLoading(true, '正在解析视频容器...');
+    audioBuffer = await extractAudioWithMP4Box(file);
+    setupEditor(file.name);
+    return;
+  } catch (err) {
+    console.warn('mp4box 方案失败:', err.message);
+    stopExtractProgress();
+  }
+
+  // 方案3：ffmpeg.wasm 通用转码（最稳，但首次需下载 ~30MB wasm）
+  try {
+    showLoading(true, '正在加载转码引擎（首次需等待下载）...');
+    audioBuffer = await extractAudioWithFFmpeg(file, (msg, pct) => {
+      if (pct !== undefined) {
+        loadingText.textContent = `ffmpeg 转码中... ${pct}%`;
+      } else {
+        loadingText.textContent = msg;
+      }
     });
     setupEditor(file.name);
   } catch (err) {
-    console.warn('Video element 方案失败，降级为容器解析方案:', err.message);
-    stopExtractProgress();
-    // 方案2：mp4box 直接解析 MP4/MOV 容器，跳过视频解码，只提取音频轨
-    // （解决 HEVC/AV1 视频或特殊音轨导致 video 元素整体加载失败的情况）
-    try {
-      showLoading(true, '正在解析视频容器...');
-      audioBuffer = await extractAudioWithMP4Box(file);
-      setupEditor(file.name);
-    } catch (err2) {
-      console.error('Video extract error:', err2);
-      showLoading(false);
-      showToast('视频音频提取失败：' + (err2.message || '未知错误'), 'error');
-    }
+    console.error('Video extract error:', err);
+    showLoading(false);
+    showToast('视频音频提取失败：' + (err.message || '未知错误'), 'error');
   }
 }
 
@@ -288,7 +306,72 @@ async function extractAudioWithMP4Box(file) {
   }
 }
 
-// AAC ADTS 头（AAC-LC, MPEG-4, 7 字节）
+// ===== ffmpeg.wasm 通用转码方案（兜底，处理任意格式） =====
+let _ffmpegInstance = null;
+let _ffmpegLoading = null;
+
+async function getFFmpeg() {
+  if (_ffmpegInstance) return _ffmpegInstance;
+  if (_ffmpegLoading) return _ffmpegLoading;
+
+  _ffmpegLoading = (async () => {
+    if (typeof FFmpegWASM === 'undefined' || !FFmpegWASM.FFmpeg) {
+      throw new Error('转码引擎未加载');
+    }
+    const ffmpeg = new FFmpegWASM.FFmpeg();
+    ffmpeg.on('log', () => {});
+    // ffmpeg-core.js 通过 ffmpeg.js 内部 worker 加载，wasm 同源 fetch
+    await ffmpeg.load({
+      coreURL: new URL('lib/ffmpeg-core.js', window.location.href).href,
+      wasmURL: new URL('lib/ffmpeg-core.wasm', window.location.href).href,
+    });
+    _ffmpegInstance = ffmpeg;
+    return ffmpeg;
+  })();
+
+  return _ffmpegLoading;
+}
+
+async function extractAudioWithFFmpeg(file, onProgress) {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  onProgress?.('加载转码引擎中...');
+  const ffmpeg = await getFFmpeg();
+
+  onProgress?.('写入文件到虚拟文件系统...');
+  const arrayBuffer = await file.arrayBuffer();
+  const inputName = 'input.' + (file.name.match(/\.\w+$/)?.[0]?.slice(1) || 'mp4');
+  await ffmpeg.writeFile(inputName, new Uint8Array(arrayBuffer));
+
+  // 进度回调
+  ffmpeg.on('progress', ({ progress }) => {
+    if (typeof progress === 'number' && progress >= 0 && progress <= 1) {
+      onProgress?.(undefined, Math.min(99, Math.round(progress * 100)));
+    }
+  });
+
+  onProgress?.('ffmpeg 转码中...');
+  // 转码为标准 WAV（48kHz/2ch/PCM s16le），浏览器 AudioContext 100% 兼容
+  await ffmpeg.exec([
+    '-i', inputName,
+    '-vn',                   // 不处理视频轨
+    '-acodec', 'pcm_s16le',  // PCM 16-bit little-endian
+    '-ar', '48000',          // 采样率 48000
+    '-ac', '2',              // 双声道
+    '-f', 'wav',
+    'output.wav',
+  ]);
+
+  onProgress?.(undefined, 100);
+  const wavBytes = await ffmpeg.readFile('output.wav');
+  await ffmpeg.deleteFile(inputName).catch(() => {});
+  await ffmpeg.deleteFile('output.wav').catch(() => {});
+
+  const wavArrayBuffer = wavBytes.buffer.slice(wavBytes.byteOffset, wavBytes.byteOffset + wavBytes.byteLength);
+  return await audioContext.decodeAudioData(wavArrayBuffer);
+}
 function makeAdtsHeader(sampleRate, channels, frameLength) {
   const freqIdxMap = { 96000: 0, 88200: 1, 64000: 2, 48000: 3, 44100: 4, 32000: 5, 24000: 6, 22050: 7, 16000: 8, 12000: 9, 11025: 10, 8000: 11, 7350: 12 };
   const freqIdx = freqIdxMap[sampleRate] !== undefined ? freqIdxMap[sampleRate] : 4; // 默认 44100
